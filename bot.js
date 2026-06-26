@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -55,7 +55,18 @@ const commands = [
         .setDescription('Claim your unique Project X Vision license key'),
     new SlashCommandBuilder()
         .setName('resethwid')
-        .setDescription('Reset your registered HWID lock')
+        .setDescription('Reset your registered HWID lock'),
+    new SlashCommandBuilder()
+        .setName('24hr-keys')
+        .setDescription('Generate a batch of 24-hour trial keys (Admin Only)')
+        .addIntegerOption(option =>
+            option.setName('amount')
+                .setDescription('The number of keys to generate (1 - 50)')
+                .setRequired(true)
+                .setMinValue(1)
+                .setMaxValue(50)
+        )
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -228,6 +239,49 @@ client.on('interactionCreate', async interaction => {
             embeds: [embed],
             ephemeral: true
         });
+    } else if (interaction.commandName === '24hr-keys') {
+        // Double-check admin permission just in case
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return interaction.reply({
+                content: '❌ Only administrators can generate trial keys.',
+                ephemeral: true
+            });
+        }
+
+        const amount = interaction.options.getInteger('amount');
+        const db = loadDatabase();
+        
+        const keysList = [];
+        for (let i = 0; i < amount; i++) {
+            const newKey = 'PXV-TRIAL-' + crypto.randomBytes(4).toString('hex').toUpperCase().match(/.{1,4}/g).join('-');
+            db.keys[newKey] = {
+                isTrial: true,
+                discordId: interaction.user.id,
+                created: new Date().toISOString(),
+                expires: null,
+                active: true
+            };
+            keysList.push(newKey);
+        }
+        saveDatabase(db);
+
+        const keysString = keysList.join('\n');
+
+        const embed = new EmbedBuilder()
+            .setColor(0xD4163C) // Premium Red
+            .setTitle('🏀 Project X Vision | Trial Keys Generated')
+            .setThumbnail(interaction.client.user.displayAvatarURL())
+            .setDescription(`Successfully generated **${amount}** trial keys. Each key lasts for **24 hours** from first activation.`)
+            .addFields(
+                { name: '📋 Generated Keys', value: `\`\`\`\n${keysString}\n\`\`\`` }
+            )
+            .setFooter({ text: 'Project X Vision • Admin Panel' })
+            .setTimestamp();
+
+        return interaction.reply({
+            embeds: [embed],
+            ephemeral: true
+        });
     }
 });
 
@@ -248,6 +302,37 @@ app.get('/verify', async (req, res) => {
 
     if (!license || !license.active) {
         return res.json({ success: false, message: "Invalid or inactive license key." });
+    }
+
+    // Trial Key Logic (Bypasses role validation, locked to 24 hours from first use)
+    if (license.isTrial) {
+        // HWID Locking Logic
+        if (!license.hwid) {
+            license.hwid = hwid;
+            saveDatabase(db);
+        } else if (license.hwid !== hwid) {
+            return res.json({ success: false, message: "HWID mismatch. Trial keys are locked to one PC." });
+        }
+
+        const now = new Date();
+        if (license.expires) {
+            const expireDate = new Date(license.expires);
+            if (now > expireDate) {
+                return res.json({ success: false, message: "This 24-hour trial key has expired." });
+            }
+        } else {
+            // First time activation: set expiration to 24 hours from now
+            const expireDate = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+            license.expires = expireDate.toISOString();
+            saveDatabase(db);
+        }
+
+        return res.json({ 
+            success: true, 
+            message: "Trial license validated successfully.",
+            username: "Trial User",
+            expires: license.expires
+        });
     }
 
     try {
