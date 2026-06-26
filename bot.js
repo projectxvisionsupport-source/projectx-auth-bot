@@ -72,6 +72,10 @@ const commands = [
         .setDescription('Post the subscription tier embeds to this channel (Admin Only)')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder()
+        .setName('freekey-setup')
+        .setDescription('Post the Free Trial Key claim embed to this channel (Admin Only)')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    new SlashCommandBuilder()
         .setName('checkkey')
         .setDescription('Check the status and remaining time on your license key')
 ].map(command => command.toJSON());
@@ -91,10 +95,38 @@ client.once('ready', async () => {
     } catch (error) {
         console.error('[Discord] Error registering slash commands:', error);
     }
+
+    // Periodic check for free key pool expiration every 1 minute
+    setInterval(async () => {
+        try {
+            const db = loadDatabase();
+            if (db.freePool && db.freePool.expiresAt) {
+                const expiresAt = new Date(db.freePool.expiresAt);
+                const isExpired = new Date() > expiresAt;
+                if (isExpired && !db.freePool.expiredUpdated) {
+                    await updateFreeKeyEmbed(client);
+                    
+                    const updatedDb = loadDatabase();
+                    if (updatedDb.freePool) {
+                        updatedDb.freePool.expiredUpdated = true;
+                        saveDatabase(updatedDb);
+                    }
+                }
+            }
+        } catch (err) {
+            console.error('[Discord] Error in background expiration checker:', err);
+        }
+    }, 60000);
 });
 
-// ─── Slash Command Interactions ─────────────────────────────────────────────
 client.on('interactionCreate', async interaction => {
+    if (interaction.isButton()) {
+        if (interaction.customId === 'claim_free_key') {
+            await handleClaimFreeKey(interaction);
+        }
+        return;
+    }
+
     if (!interaction.isChatInputCommand()) return;
 
     if (interaction.commandName === 'claimkey') {
@@ -259,26 +291,41 @@ client.on('interactionCreate', async interaction => {
         const db = loadDatabase();
         
         const keysList = [];
+        const now = new Date();
+        const expiresAt = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+
+        // Initialize or reset the free pool
+        db.freePool = db.freePool || {};
+        db.freePool.keys = [];
+        db.freePool.total = amount;
+        db.freePool.createdAt = now.toISOString();
+        db.freePool.expiresAt = expiresAt.toISOString();
+        db.freePool.expiredUpdated = false;
+
         for (let i = 0; i < amount; i++) {
-            const newKey = 'PXV-TRIAL-' + crypto.randomBytes(4).toString('hex').toUpperCase().match(/.{1,4}/g).join('-');
+            const newKey = 'PXV-FREE-' + crypto.randomBytes(4).toString('hex').toUpperCase().match(/.{1,4}/g).join('-');
             db.keys[newKey] = {
                 isTrial: true,
-                discordId: interaction.user.id,
-                created: new Date().toISOString(),
+                discordId: null, // unclaimed
+                created: now.toISOString(),
                 expires: null,
                 active: true
             };
+            db.freePool.keys.push(newKey);
             keysList.push(newKey);
         }
         saveDatabase(db);
 
         const keysString = keysList.join('\n');
 
+        // Sync the embed counts
+        await updateFreeKeyEmbed(interaction.client);
+
         const embed = new EmbedBuilder()
             .setColor(0xD4163C) // Premium Red
-            .setTitle('🏀 Project X Vision | Trial Keys Generated')
+            .setTitle('🏀 Project X Vision | Free Trial Keys Generated')
             .setThumbnail(interaction.client.user.displayAvatarURL())
-            .setDescription(`Successfully generated **${amount}** trial keys. Each key lasts for **24 hours** from first activation.`)
+            .setDescription(`Successfully generated and added **${amount}** keys to the Free Key Section pool. They will expire in 24 hours.`)
             .addFields(
                 { name: '📋 Generated Keys', value: `\`\`\`\n${keysString}\n\`\`\`` }
             )
@@ -289,6 +336,48 @@ client.on('interactionCreate', async interaction => {
             embeds: [embed],
             ephemeral: true
         });
+
+    } else if (interaction.commandName === 'freekey-setup') {
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return interaction.reply({ content: '❌ Admin only.', ephemeral: true });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        const channel = interaction.channel;
+
+        const embed = new EmbedBuilder()
+            .setColor(0xD4163C)
+            .setTitle('Welcome to # 🔑 | FREE!')
+            .setThumbnail(interaction.client.user.displayAvatarURL())
+            .setDescription('One key per user. Limited stock. Click the button below to claim your 24-hour trial key.')
+            .setFooter({ text: 'Project X Vision • Free Keys' })
+            .setTimestamp();
+
+        const claimButton = new ButtonBuilder()
+            .setCustomId('claim_free_key')
+            .setLabel('Generate FREE Key')
+            .setStyle(ButtonStyle.Success);
+
+        const remainingButton = new ButtonBuilder()
+            .setCustomId('free_keys_remaining')
+            .setLabel('Keys remaining 0/0')
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(true);
+
+        const row1 = new ActionRowBuilder().addComponents(claimButton);
+        const row2 = new ActionRowBuilder().addComponents(remainingButton);
+
+        const message = await channel.send({ embeds: [embed], components: [row1, row2] });
+
+        const db = loadDatabase();
+        db.freePool = db.freePool || {};
+        db.freePool.channelId = channel.id;
+        db.freePool.messageId = message.id;
+        saveDatabase(db);
+
+        await updateFreeKeyEmbed(interaction.client);
+
+        await interaction.editReply({ content: '✅ Free Key Section embed posted and linked successfully in this channel!' });
 
     } else if (interaction.commandName === 'store-setup') {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
@@ -480,6 +569,119 @@ client.on('interactionCreate', async interaction => {
         });
     }
 });
+
+// ─── Free Key Claim & Update Handlers ───────────────────────────────────────
+async function handleClaimFreeKey(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+    
+    const db = loadDatabase();
+    
+    if (!db.freePool || !db.freePool.expiresAt) {
+        return interaction.editReply({ content: '❌ Free key pool is not active or set up.' });
+    }
+
+    const expiresAt = new Date(db.freePool.expiresAt);
+    const isExpired = new Date() > expiresAt;
+    
+    if (isExpired || !db.freePool.keys || db.freePool.keys.length === 0) {
+        await updateFreeKeyEmbed(interaction.client);
+        return interaction.editReply({ content: '❌ The free key pool has expired or all keys have been claimed.' });
+    }
+
+    // Check if the user already has a trial or standard key
+    const hasKey = Object.values(db.keys).some(k => k.discordId === interaction.user.id);
+    if (hasKey) {
+        return interaction.editReply({ content: '❌ You already have an active license key or trial key. Limit 1 key per user.' });
+    }
+
+    // Pop a key from the pool
+    const claimedKey = db.freePool.keys.shift();
+    
+    // Assign to user in database
+    if (db.keys[claimedKey]) {
+        db.keys[claimedKey].discordId = interaction.user.id;
+        db.keys[claimedKey].created = new Date().toISOString();
+    }
+    
+    saveDatabase(db);
+
+    // Sync channel embed
+    await updateFreeKeyEmbed(interaction.client);
+
+    // Send the key to the claiming user
+    const keyEmbed = new EmbedBuilder()
+        .setColor(0xD4163C) // Premium Red
+        .setTitle('🏀 Project X Vision | Free Trial Key Claimed')
+        .setThumbnail(interaction.client.user.displayAvatarURL())
+        .setDescription('Your 24-hour Project X Vision trial key has been successfully claimed!')
+        .addFields(
+            { name: '🔑 Your Trial Key', value: `\`\`\`${claimedKey}\`\`\`` },
+            { name: '⏱️ Duration', value: 'Lasts **24 hours** from your **first login** inside the app.' },
+            { name: '🚀 How to Activate', value: '1. Open the application.\n2. Paste this key into the login window.\n3. Click **ACTIVATE LICENSE**.' }
+        )
+        .setFooter({ text: 'Project X Vision • Game On' })
+        .setTimestamp();
+
+    return interaction.editReply({
+        embeds: [keyEmbed]
+    });
+}
+
+async function updateFreeKeyEmbed(client) {
+    const db = loadDatabase();
+    if (!db.freePool || !db.freePool.channelId || !db.freePool.messageId) {
+        return;
+    }
+
+    try {
+        const channel = await client.channels.fetch(db.freePool.channelId);
+        if (!channel) return;
+
+        const message = await messageFetchSafely(channel, db.freePool.messageId);
+        if (!message) return;
+
+        const expiresAt = db.freePool.expiresAt ? new Date(db.freePool.expiresAt) : null;
+        const isExpired = expiresAt ? (new Date() > expiresAt) : true;
+        const total = isExpired ? 0 : (db.freePool.total || 0);
+        const remaining = isExpired ? 0 : (db.freePool.keys ? db.freePool.keys.length : 0);
+
+        const embed = new EmbedBuilder()
+            .setColor(0xD4163C)
+            .setTitle('Welcome to # 🔑 | FREE!')
+            .setThumbnail(client.user.displayAvatarURL())
+            .setDescription('One key per user. Limited stock. Click the button below to claim your 24-hour trial key.')
+            .setFooter({ text: 'Project X Vision • Free Keys' })
+            .setTimestamp();
+
+        const claimButton = new ButtonBuilder()
+            .setCustomId('claim_free_key')
+            .setLabel('Generate FREE Key')
+            .setStyle(ButtonStyle.Success)
+            .setDisabled(remaining === 0);
+
+        const remainingButton = new ButtonBuilder()
+            .setCustomId('free_keys_remaining')
+            .setLabel(`Keys remaining ${remaining}/${total}`)
+            .setStyle(ButtonStyle.Secondary)
+            .setDisabled(true);
+
+        const row1 = new ActionRowBuilder().addComponents(claimButton);
+        const row2 = new ActionRowBuilder().addComponents(remainingButton);
+
+        await message.edit({ embeds: [embed], components: [row1, row2] });
+    } catch (error) {
+        console.error('[Discord] Failed to update free key embed:', error);
+    }
+}
+
+// Safe message fetch helper to prevent crash on deletion
+async function messageFetchSafely(channel, messageId) {
+    try {
+        return await channel.messages.fetch(messageId);
+    } catch (e) {
+        return null;
+    }
+}
 
 client.login(TOKEN);
 
