@@ -102,12 +102,13 @@ client.on('interactionCreate', async interaction => {
 
         if (existingKey) {
             const embed = new EmbedBuilder()
-                .setColor(0x00FFFF) // Cyan theme matching app accent
-                .setTitle('🔑 License Key Information')
-                .setDescription('You have already claimed a Project X Vision license key.')
+                .setColor(0x2A2A30) // Sleek dark grey/black
+                .setTitle('🏀 Project X Vision | License Active')
+                .setThumbnail(interaction.client.user.displayAvatarURL())
+                .setDescription('You have already claimed a license key for this season.')
                 .addFields(
-                    { name: 'Your License Key', value: `\`\`\`${existingKey}\`\`\`` },
-                    { name: 'Instructions', value: 'Copy and paste this key into the application\'s login window to activate.' }
+                    { name: '📋 License Key', value: `\`\`\`${existingKey}\`\`\`` },
+                    { name: '📥 Instructions', value: 'Paste this key into the application\'s login window to bypass the lock and enter the court.' }
                 )
                 .setFooter({ text: 'Project X Vision • Secure Authentication' })
                 .setTimestamp();
@@ -128,13 +129,14 @@ client.on('interactionCreate', async interaction => {
         saveDatabase(db);
 
         const embed = new EmbedBuilder()
-            .setColor(0x2ED47A) // Success green
-            .setTitle('🎉 License Key Generated!')
-            .setDescription('Thank you for your purchase! A unique Project X Vision license has been generated for your account.')
+            .setColor(0xD4163C) // Premium Red Accent matching the app
+            .setTitle('🏀 Project X Vision | License Generated')
+            .setThumbnail(interaction.client.user.displayAvatarURL())
+            .setDescription('Your Project X Vision AI license has been generated successfully!')
             .addFields(
-                { name: 'Your License Key', value: `\`\`\`${newKey}\`\`\`` },
-                { name: 'Security Notice', value: 'Keep this key private. Sharing it will result in automatic ban.' },
-                { name: 'How to Activate', value: '1. Launch `ProjectXVision.exe`.\n2. Paste your key in the login window.\n3. Click **ACTIVATE LICENSE**.' }
+                { name: '🔑 Your License Key', value: `\`\`\`${newKey}\`\`\`` },
+                { name: '⚠️ Security Rule', value: 'This license is bound to your HWID. Sharing your key is strictly prohibited and will result in an automated ban.' },
+                { name: '🚀 How to Start', value: '1. Open the application folder.\n2. Run `ProjectXVision.exe`.\n3. Paste this key into the login window and click **ACTIVATE LICENSE**.' }
             )
             .setFooter({ text: 'Project X Vision • Powered by AI' })
             .setTimestamp();
