@@ -306,6 +306,15 @@ app.get('/verify', async (req, res) => {
 
     // Trial Key Logic (Bypasses role validation, locked to 24 hours from first use)
     if (license.isTrial) {
+        // Enforce 1 trial key per machine: check if this HWID already activated a different trial key
+        if (!license.hwid) {
+            for (const [existingKey, existingLicense] of Object.entries(db.keys)) {
+                if (existingKey !== key && existingLicense.isTrial && existingLicense.hwid === hwid) {
+                    return res.json({ success: false, message: "This machine has already used a trial key. Only 1 trial per device is allowed." });
+                }
+            }
+        }
+
         // HWID Locking Logic
         if (!license.hwid) {
             license.hwid = hwid;
