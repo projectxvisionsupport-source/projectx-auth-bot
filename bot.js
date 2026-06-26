@@ -152,14 +152,16 @@ client.on('interactionCreate', async interaction => {
         
         // 2. Check if this user already claimed a key
         let existingKey = null;
+        let existingIsTrial = false;
         for (const [k, val] of Object.entries(db.keys)) {
             if (val.discordId === member.id) {
                 existingKey = k;
+                existingIsTrial = !!val.isTrial;
                 break;
             }
         }
 
-        if (existingKey) {
+        if (existingKey && !existingIsTrial) {
             const embed = new EmbedBuilder()
                 .setColor(0x2A2A30) // Sleek dark grey/black
                 .setTitle('🏀 Project X Vision | License Active')
@@ -176,6 +178,11 @@ client.on('interactionCreate', async interaction => {
                 embeds: [embed],
                 ephemeral: true
             });
+        }
+
+        if (existingKey && existingIsTrial) {
+            // Delete the trial key to make way for the new full key
+            delete db.keys[existingKey];
         }
 
         // 3. Generate new key
@@ -673,6 +680,16 @@ async function handleCheckKeyStatusButton(interaction) {
 async function handleClaimFreeKey(interaction) {
     await interaction.deferReply({ ephemeral: true });
     
+    // 1. Check if user has an active subscription role on Discord
+    const ROLE_IDS = ROLE_ID.split(',').map(id => id.trim());
+    const member = interaction.member;
+    if (member) {
+        const hasSubRole = ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
+        if (hasSubRole) {
+            return interaction.editReply({ content: '❌ You have an active subscription role. You do not need a trial key.' });
+        }
+    }
+
     const db = loadDatabase();
     
     if (!db.freePool || !db.freePool.expiresAt) {
@@ -687,10 +704,17 @@ async function handleClaimFreeKey(interaction) {
         return interaction.editReply({ content: '❌ The free key pool has expired or all keys have been claimed.' });
     }
 
-    // Check if the user already has a trial or standard key
-    const hasKey = Object.values(db.keys).some(k => k.discordId === interaction.user.id);
-    if (hasKey) {
-        return interaction.editReply({ content: '❌ You already have an active license key or trial key. Limit 1 key per user.' });
+    // 2. Check if the user already has an active trial key
+    const hasActiveTrial = Object.values(db.keys).some(k => k.discordId === interaction.user.id && k.isTrial);
+    if (hasActiveTrial) {
+        return interaction.editReply({ content: '❌ You have already claimed a free trial key. Limit 1 trial key per user.' });
+    }
+
+    // 3. Remove any old inactive full keys for this user to keep their entry unique
+    for (const [k, val] of Object.entries(db.keys)) {
+        if (val.discordId === interaction.user.id && !val.isTrial) {
+            delete db.keys[k];
+        }
     }
 
     // Pop a key from the pool
