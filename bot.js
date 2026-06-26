@@ -76,6 +76,10 @@ const commands = [
         .setDescription('Post the Free Trial Key claim embed to this channel (Admin Only)')
         .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
     new SlashCommandBuilder()
+        .setName('checkkey-setup')
+        .setDescription('Post the Check Key button embed to this channel (Admin Only)')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    new SlashCommandBuilder()
         .setName('checkkey')
         .setDescription('Check the status and remaining time on your license key')
 ].map(command => command.toJSON());
@@ -123,6 +127,8 @@ client.on('interactionCreate', async interaction => {
     if (interaction.isButton()) {
         if (interaction.customId === 'claim_free_key') {
             await handleClaimFreeKey(interaction);
+        } else if (interaction.customId === 'check_key_status') {
+            await handleCheckKeyStatusButton(interaction);
         }
         return;
     }
@@ -336,6 +342,36 @@ client.on('interactionCreate', async interaction => {
             embeds: [embed],
             ephemeral: true
         });
+
+    } else if (interaction.commandName === 'checkkey-setup') {
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return interaction.reply({ content: '❌ Admin only.', ephemeral: true });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+        const channel = interaction.channel;
+
+        const embed = new EmbedBuilder()
+            .setColor(0xD4163C)
+            .setTitle('🏀 Project X Vision | License Status Check')
+            .setThumbnail(interaction.client.user.displayAvatarURL())
+            .setDescription('Check the status, expiration date, and registered HWID of your Project X Vision license key at any time.')
+            .addFields(
+                { name: '📋 Instructions', value: 'Click the button below. The bot will send you a private, ephemeral message with your license details.' }
+            )
+            .setFooter({ text: 'Project X Vision • Verification Center' })
+            .setTimestamp();
+
+        const checkButton = new ButtonBuilder()
+            .setCustomId('check_key_status')
+            .setLabel('🔍 Check Key Status')
+            .setStyle(ButtonStyle.Primary);
+
+        const row = new ActionRowBuilder().addComponents(checkButton);
+
+        await channel.send({ embeds: [embed], components: [row] });
+
+        await interaction.editReply({ content: '✅ License status check embed posted successfully!' });
 
     } else if (interaction.commandName === 'freekey-setup') {
         if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
@@ -571,6 +607,69 @@ client.on('interactionCreate', async interaction => {
 });
 
 // ─── Free Key Claim & Update Handlers ───────────────────────────────────────
+async function handleCheckKeyStatusButton(interaction) {
+    await interaction.deferReply({ ephemeral: true });
+
+    const db = loadDatabase();
+    const userId = interaction.user.id;
+
+    let userKey = null;
+    let license = null;
+    for (const [k, val] of Object.entries(db.keys)) {
+        if (val.discordId === userId) {
+            userKey = k;
+            license = val;
+            break;
+        }
+    }
+
+    if (!userKey) {
+        return interaction.editReply({
+            content: '❌ You do not have an active license key. Please purchase one in the store or claim a free trial key.'
+        });
+    }
+
+    const created = new Date(license.created);
+    const hwidStatus = license.hwid ? `\`${license.hwid.substring(0, 8)}...\`` : '🔓 Not locked yet';
+    let timeInfo = '♾️ Lifetime (No Expiration)';
+
+    if (license.isTrial) {
+        if (license.expires) {
+            const expireDate = new Date(license.expires);
+            const now = new Date();
+            const remaining = expireDate - now;
+            if (remaining <= 0) {
+                timeInfo = '❌ **Expired**';
+            } else {
+                const hours = Math.floor(remaining / (60 * 60 * 1000));
+                const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
+                timeInfo = `⏳ **${hours}h ${minutes}m** remaining`;
+            }
+        } else {
+            timeInfo = '⏳ 24 hours (activates on first use)';
+        }
+    }
+
+    const embed = new EmbedBuilder()
+        .setColor(license.isTrial ? 0x2A2A30 : 0xD4163C)
+        .setTitle('🏀 Project X Vision | License Status')
+        .setThumbnail(interaction.client.user.displayAvatarURL())
+        .addFields(
+            { name: '🔑 License Key', value: `\`\`\`${userKey}\`\`\``, inline: false },
+            { name: '📅 Created', value: `<t:${Math.floor(created.getTime() / 1000)}:F>`, inline: true },
+            { name: '⏱️ Time Remaining', value: timeInfo, inline: true },
+            { name: '🖥️ HWID Lock', value: hwidStatus, inline: true },
+            { name: '📋 Type', value: license.isTrial ? '24-Hour Trial' : 'Full License', inline: true },
+            { name: '✅ Status', value: license.active ? '🟢 Active' : '🔴 Inactive', inline: true }
+        )
+        .setFooter({ text: 'Project X Vision • License Info' })
+        .setTimestamp();
+
+    return interaction.editReply({
+        embeds: [embed]
+    });
+}
+
 async function handleClaimFreeKey(interaction) {
     await interaction.deferReply({ ephemeral: true });
     
