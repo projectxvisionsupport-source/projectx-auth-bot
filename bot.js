@@ -80,8 +80,10 @@ client.on('interactionCreate', async interaction => {
     if (interaction.commandName === 'claimkey') {
         const member = interaction.member;
         
-        // 1. Check if user has the required role
-        if (!member.roles.cache.has(ROLE_ID)) {
+        // 1. Check if user has any of the required roles
+        const ROLE_IDS = ROLE_ID.split(',').map(id => id.trim());
+        const hasRole = ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
+        if (!hasRole) {
             return interaction.reply({
                 content: `❌ You do not have the required role to claim a license key.`,
                 ephemeral: true
@@ -152,8 +154,9 @@ app.get('/verify', async (req, res) => {
             return res.json({ success: false, message: "User is no longer in the Discord server." });
         }
 
-        // Check if user still holds the required role
-        const hasRole = member.roles.cache.has(ROLE_ID);
+        // Check if user still holds any of the required roles
+        const ROLE_IDS = ROLE_ID.split(',').map(id => id.trim());
+        const hasRole = ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
         if (!hasRole) {
             return res.json({ success: false, message: "Required role was removed or expired." });
         }
