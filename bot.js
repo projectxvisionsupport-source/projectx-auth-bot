@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder } = require('discord.js');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -101,8 +101,19 @@ client.on('interactionCreate', async interaction => {
         }
 
         if (existingKey) {
+            const embed = new EmbedBuilder()
+                .setColor(0x00FFFF) // Cyan theme matching app accent
+                .setTitle('🔑 License Key Information')
+                .setDescription('You have already claimed a Project X Vision license key.')
+                .addFields(
+                    { name: 'Your License Key', value: `\`\`\`${existingKey}\`\`\`` },
+                    { name: 'Instructions', value: 'Copy and paste this key into the application\'s login window to activate.' }
+                )
+                .setFooter({ text: 'Project X Vision • Secure Authentication' })
+                .setTimestamp();
+
             return interaction.reply({
-                content: `🔑 You already have a license key:\n\`\`\`${existingKey}\`\`\`\nEnter this key in the application's login window.`,
+                embeds: [embed],
                 ephemeral: true
             });
         }
@@ -116,8 +127,20 @@ client.on('interactionCreate', async interaction => {
         };
         saveDatabase(db);
 
+        const embed = new EmbedBuilder()
+            .setColor(0x2ED47A) // Success green
+            .setTitle('🎉 License Key Generated!')
+            .setDescription('Thank you for your purchase! A unique Project X Vision license has been generated for your account.')
+            .addFields(
+                { name: 'Your License Key', value: `\`\`\`${newKey}\`\`\`` },
+                { name: 'Security Notice', value: 'Keep this key private. Sharing it will result in automatic ban.' },
+                { name: 'How to Activate', value: '1. Launch `ProjectXVision.exe`.\n2. Paste your key in the login window.\n3. Click **ACTIVATE LICENSE**.' }
+            )
+            .setFooter({ text: 'Project X Vision • Powered by AI' })
+            .setTimestamp();
+
         return interaction.reply({
-            content: `🎉 Your Project X Vision license key has been generated:\n\`\`\`${newKey}\`\`\`\nKeep this key private and enter it in the login window.`,
+            embeds: [embed],
             ephemeral: true
         });
     }
