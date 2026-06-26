@@ -44,8 +44,7 @@ function generateKey() {
 // ─── Discord Client Setup ───────────────────────────────────────────────────
 const client = new Client({
     intents: [
-        GatewayIntentBits.Guilds,
-        GatewayIntentBits.GuildMembers
+        GatewayIntentBits.Guilds
     ]
 });
 
