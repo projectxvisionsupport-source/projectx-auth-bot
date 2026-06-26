@@ -1,4 +1,4 @@
-const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits } = require('discord.js');
+const { Client, GatewayIntentBits, REST, Routes, SlashCommandBuilder, EmbedBuilder, PermissionFlagsBits, ActionRowBuilder, ButtonBuilder, ButtonStyle } = require('discord.js');
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
@@ -66,7 +66,14 @@ const commands = [
                 .setMinValue(1)
                 .setMaxValue(50)
         )
-        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    new SlashCommandBuilder()
+        .setName('store-setup')
+        .setDescription('Post the subscription tier embeds to this channel (Admin Only)')
+        .setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    new SlashCommandBuilder()
+        .setName('checkkey')
+        .setDescription('Check the status and remaining time on your license key')
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -276,6 +283,195 @@ client.on('interactionCreate', async interaction => {
                 { name: '📋 Generated Keys', value: `\`\`\`\n${keysString}\n\`\`\`` }
             )
             .setFooter({ text: 'Project X Vision • Admin Panel' })
+            .setTimestamp();
+
+        return interaction.reply({
+            embeds: [embed],
+            ephemeral: true
+        });
+
+    } else if (interaction.commandName === 'store-setup') {
+        if (!interaction.member.permissions.has(PermissionFlagsBits.Administrator)) {
+            return interaction.reply({ content: '❌ Admin only.', ephemeral: true });
+        }
+
+        await interaction.deferReply({ ephemeral: true });
+
+        const STORE_URL = 'https://mee6.gg/m/projectxvision';
+        const channel = interaction.channel;
+
+        // ── 1. VIP MEMBERSHIP (Green) ───────────────────────────────────────
+        const vipEmbed = new EmbedBuilder()
+            .setColor(0x39FF14)
+            .setTitle('💚  VIP MEMBERSHIP')
+            .setDescription(
+                'The perfect entry-level plan to experience AI-assisted timing. ' +
+                'Elevate your game with core computer vision features and step-by-step setup guides.\n' +
+                '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            )
+            .addFields(
+                { name: '⚡  Standard Software Access', value: '> Core features of Project X Vision.', inline: false },
+                { name: '🎯  AI Shot Timing', value: '> Real-time meter detection and green release scanning.', inline: false },
+                { name: '📋  Setup Guides', value: '> Access to our step-by-step configuration documentation.', inline: false },
+                { name: '💬  VIP Discord Role', value: '> Chat with other VIP members and get standard community help.', inline: false },
+                { name: '\u200B', value: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', inline: false }
+            )
+            .setFooter({ text: 'Project X Vision • VIP Tier' })
+            .setTimestamp();
+
+        const vipButton = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel('🛒 Purchase VIP')
+                .setStyle(ButtonStyle.Link)
+                .setURL(STORE_URL)
+        );
+
+        await channel.send({ embeds: [vipEmbed], components: [vipButton] });
+
+        // ── 2. PREMIUM MEMBERSHIP (Blue) ────────────────────────────────────
+        const premiumEmbed = new EmbedBuilder()
+            .setColor(0x0096FF)
+            .setTitle('💎  PREMIUM MEMBERSHIP')
+            .setDescription(
+                'Experience the standard premium suite of Project X Vision. ' +
+                'Get full access to AI-powered green releases and clean ImGui overlay features.\n' +
+                '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            )
+            .addFields(
+                { name: '⚡  Full Software Access', value: '> Complete usage of the Project X Vision executable.', inline: false },
+                { name: '🧠  AI Detection Engine', value: '> Enable YOLOv8 ONNX detection modes.', inline: false },
+                { name: '🎮  Hardware Output', value: '> Full controller mapping & Titan Two support.', inline: false },
+                { name: '📦  Regular Updates', value: '> Stay up to date with new software patches.', inline: false },
+                { name: '🔷  Premium Discord Access', value: '> Unlock standard premium member chat rooms.', inline: false },
+                { name: '\u200B', value: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', inline: false }
+            )
+            .setFooter({ text: 'Project X Vision • Premium Tier' })
+            .setTimestamp();
+
+        const premiumButton = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel('🛒 Purchase Premium')
+                .setStyle(ButtonStyle.Link)
+                .setURL(STORE_URL)
+        );
+
+        await channel.send({ embeds: [premiumEmbed], components: [premiumButton] });
+
+        // ── 3. ELITE MEMBERSHIP (Red) ───────────────────────────────────────
+        const eliteEmbed = new EmbedBuilder()
+            .setColor(0xD4163C)
+            .setTitle('🔴  ELITE MEMBERSHIP')
+            .setDescription(
+                'Designed for competitive players who want the absolute edge. ' +
+                'Unlock the full power of Project X Vision\'s computer vision engine with priority support and elite configurations.\n' +
+                '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            )
+            .addFields(
+                { name: '⚡  Full Software Access', value: '> Premium usage of the Project X Vision tool.', inline: false },
+                { name: '🚀  GPU Acceleration', value: '> High-FPS ONNX detection via OpenCL/CUDA.', inline: false },
+                { name: '🎮  Advanced Controller Support', value: '> Seamless Titan Two and virtual controller integration.', inline: false },
+                { name: '⏱️  Premium Timing Configs', value: '> Access to community-tested shot timings for layups, rhythmic fades, and dunk meters.', inline: false },
+                { name: '🔴  Elite Discord Perks', value: '> Access to Elite discussion rooms and accelerated support ticket queue.', inline: false },
+                { name: '\u200B', value: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', inline: false }
+            )
+            .setFooter({ text: 'Project X Vision • Elite Tier' })
+            .setTimestamp();
+
+        const eliteButton = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel('🛒 Purchase Elite')
+                .setStyle(ButtonStyle.Link)
+                .setURL(STORE_URL)
+        );
+
+        await channel.send({ embeds: [eliteEmbed], components: [eliteButton] });
+
+        // ── 4. LIFETIME ACCESS (Gold) ───────────────────────────────────────
+        const lifetimeEmbed = new EmbedBuilder()
+            .setColor(0xFFD700)
+            .setTitle('👑  LIFETIME ACCESS')
+            .setDescription(
+                'Get permanent, unrestricted access to Project X Vision with a single, one-time payment. ' +
+                'Never worry about monthly subscriptions or billing cycles again.\n' +
+                '\n━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━'
+            )
+            .addFields(
+                { name: '🏆  Permanent Software License', value: '> Lifetime access to all current and future Project X Vision releases.', inline: false },
+                { name: '🧠  Full AI Model Access', value: '> Unrestricted use of ONNX GPU-accelerated neural networks (including the latest Arrow2 models).', inline: false },
+                { name: '🎮  Zero-Latency Controller Emulation', value: '> Direct hardware-level output support for Titan Two and ViGEm.', inline: false },
+                { name: '🔄  Lifetime Updates', value: '> Automatic updates for new game seasons, patches, and feature additions.', inline: false },
+                { name: '👑  Elite Lifetime Discord Role', value: '> Access to private lifetime-only channels, exclusive timings sharing, and priority support.', inline: false },
+                { name: '\u200B', value: '━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━', inline: false }
+            )
+            .setFooter({ text: 'Project X Vision • Lifetime Tier' })
+            .setTimestamp();
+
+        const lifetimeButton = new ActionRowBuilder().addComponents(
+            new ButtonBuilder()
+                .setLabel('👑 Purchase Lifetime')
+                .setStyle(ButtonStyle.Link)
+                .setURL(STORE_URL)
+        );
+
+        await channel.send({ embeds: [lifetimeEmbed], components: [lifetimeButton] });
+
+        await interaction.editReply({ content: '✅ Store embeds posted successfully in this channel!' });
+
+    } else if (interaction.commandName === 'checkkey') {
+        const member = interaction.member;
+        const db = loadDatabase();
+
+        let userKey = null;
+        let license = null;
+        for (const [k, val] of Object.entries(db.keys)) {
+            if (val.discordId === member.id) {
+                userKey = k;
+                license = val;
+                break;
+            }
+        }
+
+        if (!userKey) {
+            return interaction.reply({
+                content: '❌ You do not have an active license key.',
+                ephemeral: true
+            });
+        }
+
+        const created = new Date(license.created);
+        const hwidStatus = license.hwid ? `\`${license.hwid.substring(0, 8)}...\`` : '🔓 Not locked yet';
+        let timeInfo = '♾️ Lifetime (No Expiration)';
+
+        if (license.isTrial) {
+            if (license.expires) {
+                const expireDate = new Date(license.expires);
+                const now = new Date();
+                const remaining = expireDate - now;
+                if (remaining <= 0) {
+                    timeInfo = '❌ **Expired**';
+                } else {
+                    const hours = Math.floor(remaining / (60 * 60 * 1000));
+                    const minutes = Math.floor((remaining % (60 * 60 * 1000)) / (60 * 1000));
+                    timeInfo = `⏳ **${hours}h ${minutes}m** remaining`;
+                }
+            } else {
+                timeInfo = '⏳ 24 hours (activates on first use)';
+            }
+        }
+
+        const embed = new EmbedBuilder()
+            .setColor(license.isTrial ? 0x2A2A30 : 0xD4163C)
+            .setTitle('🏀 Project X Vision | License Status')
+            .setThumbnail(interaction.client.user.displayAvatarURL())
+            .addFields(
+                { name: '🔑 License Key', value: `\`\`\`${userKey}\`\`\``, inline: false },
+                { name: '📅 Created', value: `<t:${Math.floor(created.getTime() / 1000)}:F>`, inline: true },
+                { name: '⏱️ Time Remaining', value: timeInfo, inline: true },
+                { name: '🖥️ HWID Lock', value: hwidStatus, inline: true },
+                { name: '📋 Type', value: license.isTrial ? '24-Hour Trial' : 'Full License', inline: true },
+                { name: '✅ Status', value: license.active ? '🟢 Active' : '🔴 Inactive', inline: true }
+            )
+            .setFooter({ text: 'Project X Vision • License Info' })
             .setTimestamp();
 
         return interaction.reply({
