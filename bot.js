@@ -52,7 +52,10 @@ const client = new Client({
 const commands = [
     new SlashCommandBuilder()
         .setName('claimkey')
-        .setDescription('Claim your unique Project X Vision license key')
+        .setDescription('Claim your unique Project X Vision license key'),
+    new SlashCommandBuilder()
+        .setName('resethwid')
+        .setDescription('Reset your registered HWID lock')
 ].map(command => command.toJSON());
 
 const rest = new REST({ version: '10' }).setToken(TOKEN);
@@ -145,6 +148,86 @@ client.on('interactionCreate', async interaction => {
             embeds: [embed],
             ephemeral: true
         });
+    } else if (interaction.commandName === 'resethwid') {
+        const member = interaction.member;
+        const db = loadDatabase();
+        
+        let userKey = null;
+        let license = null;
+        for (const [k, val] of Object.entries(db.keys)) {
+            if (val.discordId === member.id) {
+                userKey = k;
+                license = val;
+                break;
+            }
+        }
+
+        if (!userKey) {
+            return interaction.reply({
+                content: '❌ You do not have an active license key to reset.',
+                ephemeral: true
+            });
+        }
+
+        if (!license.hwid) {
+            return interaction.reply({
+                content: 'ℹ️ Your license key is already unlocked (no HWID is registered yet).',
+                ephemeral: true
+            });
+        }
+
+        // Cooldown Check (Once every 24 hours)
+        const now = new Date();
+        if (license.lastReset) {
+            const lastResetDate = new Date(license.lastReset);
+            const diffMs = now - lastResetDate;
+            const cooldownMs = 24 * 60 * 60 * 1000; // 24 hours
+            
+            if (diffMs < cooldownMs) {
+                const remainingMs = cooldownMs - diffMs;
+                const remainingHours = Math.floor(remainingMs / (60 * 60 * 1000));
+                const remainingMinutes = Math.floor((remainingMs % (60 * 60 * 1000)) / (60 * 1000));
+                
+                const cooldownEmbed = new EmbedBuilder()
+                    .setColor(0x2A2A30) // Dark Grey
+                    .setTitle('🏀 Project X Vision | Reset Cooldown')
+                    .setThumbnail(interaction.client.user.displayAvatarURL())
+                    .setDescription(`❌ You can only reset your HWID lock once every 24 hours.`)
+                    .addFields(
+                        { name: '⏳ Cooldown Remaining', value: `\`${remainingHours}h ${remainingMinutes}m\`` },
+                        { name: '💡 Note', value: 'This safety feature prevents key sharing. If you have a legitimate emergency, contact an administrator.' }
+                    )
+                    .setFooter({ text: 'Project X Vision • Cooldown Protection' })
+                    .setTimestamp();
+
+                return interaction.reply({
+                    embeds: [cooldownEmbed],
+                    ephemeral: true
+                });
+            }
+        }
+
+        // Clear the registered HWID
+        license.hwid = null;
+        license.lastReset = now.toISOString();
+        saveDatabase(db);
+
+        const embed = new EmbedBuilder()
+            .setColor(0xD4163C) // Premium Red
+            .setTitle('🏀 Project X Vision | HWID Reset Success')
+            .setThumbnail(interaction.client.user.displayAvatarURL())
+            .setDescription('Your HWID lock has been successfully cleared!')
+            .addFields(
+                { name: '📋 License Key', value: `\`\`\`${userKey}\`\`\`` },
+                { name: '💡 Next Step', value: 'Start `ProjectXVision.exe` on your new computer and activate the key. It will lock to the new system automatically.' }
+            )
+            .setFooter({ text: 'Project X Vision • HWID Management' })
+            .setTimestamp();
+
+        return interaction.reply({
+            embeds: [embed],
+            ephemeral: true
+        });
     }
 });
 
@@ -155,8 +238,9 @@ const app = express();
 
 app.get('/verify', async (req, res) => {
     const key = req.query.key;
-    if (!key) {
-        return res.status(400).json({ success: false, message: "Missing license key parameter." });
+    const hwid = req.query.hwid;
+    if (!key || !hwid) {
+        return res.status(400).json({ success: false, message: "Missing license key or HWID parameter." });
     }
 
     const db = loadDatabase();
@@ -183,6 +267,14 @@ app.get('/verify', async (req, res) => {
         const hasRole = ROLE_IDS.some(roleId => member.roles.cache.has(roleId));
         if (!hasRole) {
             return res.json({ success: false, message: "Required role was removed or expired." });
+        }
+
+        // HWID Locking Logic
+        if (!license.hwid) {
+            license.hwid = hwid;
+            saveDatabase(db);
+        } else if (license.hwid !== hwid) {
+            return res.json({ success: false, message: "HWID mismatch. Use /resethwid in Discord to switch PCs." });
         }
 
         // Access fully granted
