@@ -17,23 +17,87 @@ if (!TOKEN || !CLIENT_ID || !GUILD_ID || !ROLE_ID) {
     process.exit(1);
 }
 
-// ─── Database Helpers (Pure JS JSON Database) ───────────────────────────────
-const DB_FILE = path.join(__dirname, 'database.json');
+// ─── Database Helpers (MongoDB Atlas Integration) ───────────────────────────
+const { MongoClient } = require('mongodb');
+const MONGODB_URI = process.env.MONGODB_URI;
 
-function loadDatabase() {
-    if (!fs.existsSync(DB_FILE)) {
-        fs.writeFileSync(DB_FILE, JSON.stringify({ keys: {} }, null, 2));
+let localDb = { keys: {} };
+let mongoCollection = null;
+
+async function initDatabase() {
+    if (!MONGODB_URI) {
+        console.warn("WARNING: MONGODB_URI environment variable not set. Falling back to local database.json!");
+        const DB_FILE = path.join(__dirname, 'database.json');
+        if (!fs.existsSync(DB_FILE)) {
+            fs.writeFileSync(DB_FILE, JSON.stringify({ keys: {} }, null, 2));
+        }
+        try {
+            localDb = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+        } catch (err) {
+            localDb = { keys: {} };
+        }
+        return;
     }
     try {
-        return JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+        console.log("[Database] Connecting to MongoDB...");
+        const client = new MongoClient(MONGODB_URI);
+        await client.connect();
+        const db = client.db('projectx');
+        mongoCollection = db.collection('config');
+        
+        const doc = await mongoCollection.findOne({ _id: 'global_db' });
+        if (doc && doc.data) {
+            localDb = doc.data;
+            console.log("[Database] Loaded database from MongoDB successfully.");
+        } else {
+            console.log("[Database] No database found in MongoDB. Checking for local database.json migration...");
+            const DB_FILE = path.join(__dirname, 'database.json');
+            if (fs.existsSync(DB_FILE)) {
+                try {
+                    localDb = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+                    console.log("[Database] Migrated local database.json keys to MongoDB.");
+                } catch (err) {
+                    localDb = { keys: {} };
+                }
+            } else {
+                localDb = { keys: {} };
+            }
+            await mongoCollection.updateOne({ _id: 'global_db' }, { $set: { data: localDb } }, { upsert: true });
+        }
     } catch (e) {
-        console.error("Database corrupt, resetting...");
-        return { keys: {} };
+        console.error("[Database] Failed to connect to MongoDB, using local fallback:", e);
+        const DB_FILE = path.join(__dirname, 'database.json');
+        if (!fs.existsSync(DB_FILE)) {
+            fs.writeFileSync(DB_FILE, JSON.stringify({ keys: {} }, null, 2));
+        }
+        try {
+            localDb = JSON.parse(fs.readFileSync(DB_FILE, 'utf8'));
+        } catch (err) {
+            localDb = { keys: {} };
+        }
     }
 }
 
+function loadDatabase() {
+    return localDb;
+}
+
 function saveDatabase(db) {
-    fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+    localDb = db;
+
+    // Save to local file as fallback/backup
+    const DB_FILE = path.join(__dirname, 'database.json');
+    try {
+        fs.writeFileSync(DB_FILE, JSON.stringify(db, null, 2));
+    } catch (err) {}
+
+    // Save to MongoDB asynchronously
+    if (mongoCollection) {
+        mongoCollection.updateOne({ _id: 'global_db' }, { $set: { data: db } }, { upsert: true })
+            .catch(err => {
+                console.error("[Database] Failed to sync to MongoDB:", err);
+            });
+    }
 }
 
 function generateKey() {
@@ -806,8 +870,6 @@ async function messageFetchSafely(channel, messageId) {
     }
 }
 
-client.login(TOKEN);
-
 // ─── Web API Express Server ────────────────────────────────────────────────
 const app = express();
 
@@ -910,6 +972,11 @@ app.get('/health', (req, res) => {
     res.send('OK');
 });
 
-app.listen(PORT, () => {
-    console.log(`[API] Web API is listening on port ${PORT}`);
-});
+async function start() {
+    await initDatabase();
+    client.login(TOKEN);
+    app.listen(PORT, () => {
+        console.log(`[API] Web API is listening on port ${PORT}`);
+    });
+}
+start();
